@@ -12,6 +12,202 @@ foreach ($client->parseEvents() as $event) {
     // debugging info
     file_put_contents('/tmp/linebot.txt', var_export($event, 1)."\n\n", FILE_APPEND);
 
+    $error_message = array(
+        '500' => '寶寶出錯了，只是寶寶不說',
+        '404' => '找不到你要的寶貝',
+    );
+    switch ($event['type']) {
+        case 'message':
+            $message = $event['message'];
+            switch ($message['type']) {
+                case 'text':
+                    $item = trim($message['text']);
+                    if ( mb_substr($item, 0, 1, 'UTF-8') == '?' || mb_substr($item, 0, 1, 'UTF-8') == '$' ) {
+                        $item = mb_substr($item, 1, NULL, 'UTF-8');
+                        $replyMessage = queryApi($item, 'carousel');
+
+                        file_put_contents('/tmp/linebot.txt', var_export($replyMessage, 1)."\n\n", FILE_APPEND);
+
+                        if ( $replyMessage == '500' || $replyMessage == '404' ) {
+                            $client->replyMessage(array(
+                                'replyToken' => $event['replyToken'],
+                                'messages' => array(
+                                    array(
+                                        'type' => 'text',
+                                        'text' => $error_message[$replyMessage],
+                                    ),
+                                )
+                            ));
+                        } else {
+                            $client->replyMessage(array(
+                                'replyToken' => $event['replyToken'],
+                                'messages' => array(
+                                    array(
+                                        'type' => 'template',
+                                        'altText' => 'no support on this version, please upgrade',
+                                        'template' => array(
+                                            'type' => 'carousel',
+                                            'columns' => $replyMessage
+                                        ),
+                                    ),
+                                )
+                            ));
+                        }
+
+                    }
+                    break;
+                default:
+                    error_log("Unsupporeted message type: " . $message['type']);
+                    break;
+            }
+            break;
+        default:
+            error_log("Unsupporeted event type: " . $event['type']);
+            break;
+    }
+};
+exit;
+
+
+
+/*
+ 精選好康優惠
+ https://api.feebee.com.tw/v1/today.php?
+ */
+function queryApi($query, $type = 'text') {    
+    $q = urlencode($query);
+    $findprice_url = "https://api.feebee.com.tw/v1/search.php?pl=500&n=5&q=$q";
+    $ch2 = curl_init($findprice_url);
+    curl_setopt($ch2, CURLOPT_RETURNTRANSFER, TRUE);
+    curl_setopt($ch2, CURLOPT_HEADER, FALSE);
+    curl_setopt($ch2, CURLOPT_USERAGENT, "Google Bot");
+    curl_setopt($ch2, CURLOPT_FOLLOWLOCATION, TRUE);
+    $ret = curl_exec($ch2);
+    curl_close($ch2);
+
+    if ( $ret === false ) {
+        return 500;
+    }
+
+    $result = json_decode($ret, TRUE);
+    if ( $result['total'] == 0 ) {
+        return 404;
+    }
+
+    switch($type) {
+        case 'carousel':
+            return assemble_carousel($result);
+            break;
+
+        case 'text':
+        default:
+            return assemble_text($result);
+            break;
+    }
+}
+
+/*
+{
+    q: "em5",
+    sq: "em5",
+    total: 282,
+    ql: 150,
+    qh: 70990,
+    date: "20160825",
+    share: "http://feebee.com.tw/s/?q=em5&page=1&n=3&s=p&mode=l",
+    products: [ ],
+    items: [],
+    campaign: [],
+    provide: []
+}
+*/
+
+
+function assemble_text($result) {
+    $message = '';
+    if (isset($result['products']) && is_array($result['products'])) {
+        $n = 0;
+        foreach ($result['products'] as $product) {
+            //$message .= sprintf("・($%s-$%s) %s[%s]\n\n", $product['ql'], $product['qh'], $product['title'], $product['url']);
+            $message .= sprintf("・《$%s-$%s》%s\n\n", $product['ql'], $product['qh'], $product['title']);
+            if ($n++ > 3) {
+                break;
+            }
+        }
+    }
+
+    if (isset($result['items']) && is_array($result['items'])) {
+        $n = 0;
+        foreach ($result['items'] as $item) {
+            //$message .= sprintf("・($%s) %s[%s]\n\n", $item['price'], $item['title'], $item['link']);
+            $message .= sprintf("・《$%s》%s\n\n", $item['price'], $item['title'], $item['link']);
+            if ($n++ > 3) {
+                break;
+            }
+        }
+    }
+
+    if (isset($result['campaign']) && is_array($result['campaign'])) {
+        $n = 0;
+        foreach ($result['campaign'] as $campaign) {
+            //$message .= sprintf("・($%s) %s[%s]\n\n", $campaign['price'], $campaign['title'], $campaign['link']);
+            $message .= sprintf("・《$%s》%s\n\n", $campaign['price'], $campaign['title']);
+            if ($n++ > 3) {
+                break;
+            }
+        }
+    }
+
+    $message .= sprintf("《更多》%s", $result['share']);
+
+    return $message;
+}
+
+function assemble_carousel($result) {
+    $columns = array();
+    if (isset($result['items']) && is_array($result['items'])) {
+        $n = 0;
+        foreach ($result['items'] as $item) {
+            //$message .= sprintf("・($%s) %s[%s]\n\n", $item['price'], $item['title'], $item['link']);
+            $imageUrl = trim($item['image']);
+            if ( preg_match('/^http:\/\/(.*)/i', $imageUrl, $matches) == 1 ) {
+                $imageUrl = 'https://images.weserv.nl/?url='. $matches[1];
+            }
+
+            error_log("check encoding: " . mb_strlen($item['title']));
+            error_log("check encoding utf-8: " . mb_strlen($item['title'], 'UTF-8'));
+            error_log("substr: " . mb_substr($item['title'], 0, 60, 'UTF-8'));
+
+            $columns[] = array(
+                'title' => '$' . strval($item['price']),
+                'text' => mb_substr($item['title'], 0, 60, 'UTF-8'),
+                'thumbnailImageUrl' => $imageUrl,
+                'actions' => array(
+                    array(
+                        'type' => 'uri',
+                        'label' => $item['store'],
+                        'uri' => $item['link'],
+                    ),
+                ),
+            );
+
+            if ($n++ > 5) {
+                break;
+            }
+        }
+    }
+
+    return $columns;
+
+}
+
+
+/*
+
+foreach ($client->parseEvents() as $event) {
+    // debugging info
+    file_put_contents('/tmp/linebot.txt', var_export($event, 1)."\n\n", FILE_APPEND);
+
     switch ($event['type']) {
         case 'message':
             $message = $event['message'];
@@ -51,14 +247,13 @@ foreach ($client->parseEvents() as $event) {
                                     'height' => 1040
                                 ),
                                 'actions' => array(
-                                    /*
                                     array(
-                                        "type" => "uri",
-                                        "linkUri" => "http://bit.ly/2ek0eRZ",
+                                        "type" => "message",
+                                        "text" => "Hello message from imagemap",
                                         "area" => array(
-                                            "x" => 0,
+                                            "x" => 521,
                                             "y" => 0,
-                                            "width" => 520,
+                                            "width" => 510,
                                             "height" => 1040,
                                         )
                                     ),
@@ -72,17 +267,6 @@ foreach ($client->parseEvents() as $event) {
                                             "height" => 1040,
                                         )
                                     ),
-                                    */
-                                    array(
-                                        "type" => "message",
-                                        "text" => "Hello message from imagemap",
-                                        "area" => array(
-                                            "x" => 521,
-                                            "y" => 0,
-                                            "width" => 510,
-                                            "height" => 1040,
-                                        )
-                                    )
                                 )
                             ),
                         )
@@ -109,85 +293,7 @@ foreach ($client->parseEvents() as $event) {
             break;
     }
 };
-exit;
 
 
-
-/*
- 精選好康優惠
- https://api.feebee.com.tw/v1/today.php?
- */
-function queryApi($query) {
-    $q = urlencode($query);
-    $findprice_url = "https://api.feebee.com.tw/v1/search.php?pl=1000&ph=&q=$q";
-    $ch2 = curl_init($findprice_url);
-    curl_setopt($ch2, CURLOPT_RETURNTRANSFER, TRUE);
-    curl_setopt($ch2, CURLOPT_HEADER, false);
-    curl_setopt($ch2, CURLOPT_USERAGENT, "Google Bot");
-    curl_setopt($ch2, CURLOPT_FOLLOWLOCATION, true);
-    $ret = curl_exec($ch2);
-    curl_close($ch2);
-
-    if ( $ret === false ) {
-        return '寶寶出錯了，只是寶寶不說';
-    }
-
-    /*
-    {
-        q: "em5",
-        sq: "em5",
-        total: 282,
-        ql: 150,
-        qh: 70990,
-        date: "20160825",
-        share: "http://feebee.com.tw/s/?q=em5&page=1&n=3&s=p&mode=l",
-        products: [ ],
-        items: [],
-        campaign: [],
-        provide: []
-    }
-    */
-    $result = json_decode($ret, TRUE);
-    if ( $result['total'] == 0 ) {
-        return '找不到你要的寶貝';
-    }
-
-    $message = '';
-    if (isset($result['products']) && is_array($result['products'])) {
-        $n = 0;
-        foreach ($result['products'] as $product) {
-            //$message .= sprintf("・($%s-$%s) %s[%s]\n\n", $product['ql'], $product['qh'], $product['title'], $product['url']);
-            $message .= sprintf("・《$%s-$%s》%s\n\n", $product['ql'], $product['qh'], $product['title']);
-            if ($n++ > 3) {
-                break;
-            }
-        }
-    }
-
-    if (isset($result['items']) && is_array($result['items'])) {
-        $n = 0;
-        foreach ($result['items'] as $item) {
-            //$message .= sprintf("・($%s) %s[%s]\n\n", $item['price'], $item['title'], $item['link']);
-            $message .= sprintf("・《$%s》%s\n\n", $item['price'], $item['title'], $item['link']);
-            if ($n++ > 3) {
-                break;
-            }
-        }
-    }
-
-    if (isset($result['campaign']) && is_array($result['campaign'])) {
-        $n = 0;
-        foreach ($result['campaign'] as $campaign) {
-            //$message .= sprintf("・($%s) %s[%s]\n\n", $campaign['price'], $campaign['title'], $campaign['link']);
-            $message .= sprintf("・《$%s》%s\n\n", $campaign['price'], $campaign['title']);
-            if ($n++ > 3) {
-                break;
-            }
-        }
-    }
-
-    $message .= sprintf("《更多》%s", $result['share']);
-
-    return $message;
-}
+*/
 
