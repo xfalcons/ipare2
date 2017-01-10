@@ -3,8 +3,8 @@ set_include_path(get_include_path() . PATH_SEPARATOR . '/usr/local/google-api-ph
 require_once '/usr/local/google-api-php-client/src/Google/autoload.php';
 require_once('/home/m/share/htdocs/api/ipare/LINEBotTiny.php');
 
-$channelAccessToken = '4UBQVj3OSwDaWRsanONIURNhUni9/MJKokJ36hrM5v4EE6VVPvWU13txx+5mWSPIX0rNWP9vBrZ8HRZR+zcaRkJPOKKz/JZ+gUS0IF+b8/sTz4CHtg8lcb+9bImyK1yq2HTuzDMfWOWn3uGiauvP1QdB04t89/1O/w1cDnyilFU=';
-$channelSecret = 'f1cd084fb5a28bd2716c63ca7225dbf9';
+$channelAccessToken = 'zozhngkOrXeamjIe5SvZ/FL8Jw1ADdKQEI6sg+eOjxXDb8q5rrYG/O4rcMCjddjn/Nd+i4UrAO8DtmTt+UDWARgRdgKPaaRQ4Ql0OjGSOyTtw44k07Xpa1hN80dzPDd88s6tP/RJMU+Iy0Pla9bqOgdB04t89/1O/w1cDnyilFU=';
+$channelSecret = 'e548a4f984cbe23d3d2250295eff3d4b';
 
 $replyMessage = "I don't know what to do.";
 $client = new LINEBotTiny($channelAccessToken, $channelSecret);
